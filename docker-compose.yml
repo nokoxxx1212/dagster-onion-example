@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  dagster-app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+    environment:
+      - DAGSTER_HOME=/app/dagster_home
+    command: uv run python ui/cli.py --job wikipedia_etl_job
+
+  dagster-web:
+    build: .
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+    environment:
+      - DAGSTER_HOME=/app/dagster_home
+    command: uv run dagster dev --host 0.0.0.0 --port 3000
