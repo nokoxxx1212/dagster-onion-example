@@ -29,6 +29,10 @@ dev = [
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["domain*", "infrastructure*", "usecase*", "ui*"]
+exclude = ["tests*", "data*"]
+
 [tool.black]
 line-length = 88
 target-version = ['py38']
@@ -48,3 +52,6 @@ python_version = "3.8"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.dagster]
+module_name = "definitions"

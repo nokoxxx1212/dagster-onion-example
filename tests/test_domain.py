@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-import pandera as pa
+import pandera.pandas as pa
 from unittest.mock import Mock, patch
 
 from domain.models import WikipediaApiConfig, ProcessingResult, PageSchema

@@ -1,17 +1,22 @@
 from typing import Dict, Any, List
 from dataclasses import dataclass
-import pandera as pa
+import pandera.pandas as pa
 from pandera.typing import DataFrame, Series
 
 
 class PageSchema(pa.DataFrameModel):
     """Wikipedia page schema definition using Pandera"""
     pageid: Series[int] = pa.Field(ge=1, description="Wikipedia page ID")
-    title: Series[str] = pa.Field(min_length=1, description="Page title")
+    title: Series[str] = pa.Field(description="Page title")
     
     class Config:
         strict = True
         coerce = True
+    
+    @pa.check("title")
+    def title_not_empty(cls, series):
+        """Check that title is not empty"""
+        return series.str.len() > 0
 
 
 @dataclass
