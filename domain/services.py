@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
 import pandas as pd
-import pandera as pa
+import pandera.pandas as pa
 from .models import PageSchema, ProcessingResult
 from .repositories import DataRepository
 

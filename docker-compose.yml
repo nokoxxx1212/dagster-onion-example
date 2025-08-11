@@ -1,24 +1,44 @@
 version: '3.8'
 
 services:
-  dagster-app:
+  # Dagster Web UI - ブラウザでアクセスして操作
+  dagster-web:
     build: .
     ports:
       - "3000:3000"
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env
+      - dagster-storage:/app/dagster_home
     environment:
       - DAGSTER_HOME=/app/dagster_home
-    command: uv run python ui/cli.py --job wikipedia_etl_job
-
-  dagster-web:
+    command: uv run dagster dev --host 0.0.0.0 --port 3000
+    
+  # CLI実行用コンテナ（特定のジョブを実行）
+  dagster-cli:
     build: .
-    ports:
-      - "3001:3000"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+      - dagster-storage:/app/dagster_home
+    environment:
+      - DAGSTER_HOME=/app/dagster_home
+    profiles:
+      - cli
+    # 使用例: docker-compose run dagster-cli uv run python ui/cli.py --job wikipedia_etl_job
+    
+  # テスト実行用コンテナ  
+  dagster-test:
+    build: .
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env
     environment:
       - DAGSTER_HOME=/app/dagster_home
-    command: uv run dagster dev --host 0.0.0.0 --port 3000
+    profiles:
+      - test
+    command: uv run pytest
+    # 使用例: docker-compose run dagster-test
+
+volumes:
+  dagster-storage:

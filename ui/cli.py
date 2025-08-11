@@ -102,11 +102,18 @@ def execute_job(job_name: str, verbose: bool = False, dry_run: bool = False) -> 
     """Execute a Dagster job"""
     try:
         # Get the job from definitions
-        if not hasattr(defs, 'get_job_def'):
-            # If get_job_def doesn't exist, get jobs from repository
+        jobs_dict = {}
+        
+        # Try different ways to get jobs depending on Dagster version
+        if hasattr(defs, 'jobs') and defs.jobs:
+            jobs_dict = {job.name: job for job in defs.jobs}
+        elif hasattr(defs, 'get_all_job_defs'):
             jobs_dict = {job.name: job for job in defs.get_all_job_defs()}
+        elif hasattr(defs, 'job_defs'):
+            jobs_dict = {job.name: job for job in defs.job_defs}
         else:
-            jobs_dict = {job.name: job for job in defs.get_all_job_defs()}
+            print("❌ Unable to retrieve jobs from definitions")
+            return False
         
         if job_name not in jobs_dict:
             available_jobs = list(jobs_dict.keys())
@@ -136,8 +143,34 @@ def execute_job(job_name: str, verbose: bool = False, dry_run: bool = False) -> 
         # Create Dagster instance
         instance = DagsterInstance.ephemeral()
         
-        # Execute the job
-        result = job_def.execute_in_process(instance=instance)
+        # Execute the job using dagster APIs
+        try:
+            # For all jobs, use materialize with all assets
+            from dagster import materialize
+            
+            # Get all assets from definitions
+            all_assets = defs.assets or []
+            
+            if not all_assets:
+                print("❌ No assets found to execute")
+                return False
+            
+            print(f"📊 Materializing {len(all_assets)} assets...")
+            
+            # Show asset names if verbose
+            if verbose:
+                for asset in all_assets:
+                    asset_name = getattr(asset, 'key', getattr(asset, 'name', 'unknown'))
+                    print(f"  - {asset_name}")
+            
+            result = materialize(all_assets, instance=instance)
+        
+        except Exception as e:
+            print(f"❌ Job execution failed with error: {str(e)}")
+            if verbose:
+                import traceback
+                traceback.print_exc()
+            return False
         
         if result.success:
             print(f"✅ Job '{job_name}' completed successfully!")

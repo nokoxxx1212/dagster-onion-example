@@ -75,12 +75,66 @@ uv run dagster dev
 
 ### 4. Docker実行
 
-```bash
-# Docker Composeでの実行
-docker-compose up --build
+#### 🌐 Dagster Web UIでの実行（推奨）
 
-# 特定のジョブを実行
-docker-compose run dagster-app
+```bash
+# 環境変数ファイルを作成
+cp .env.example .env
+
+# Dagster Web UIを起動
+docker-compose up -d dagster-web
+
+# ブラウザで http://localhost:3000 にアクセス
+```
+
+**Web UIでの操作手順：**
+
+1. **アセットの実行**
+   - 「Assets」タブでアセット一覧を確認
+   - 実行したいアセット（例: `exported_csv`）をクリック
+   - 「Materialize」→「Materialize with upstream」で依存関係含めて実行
+
+2. **ジョブの実行**
+   - 「Jobs」タブで利用可能なジョブを確認
+   - 実行したいジョブ（例: `wikipedia_etl_job`）をクリック  
+   - 「Launch Run」ボタンで実行開始
+
+3. **実行結果の確認**
+   - 「Runs」タブで実行履歴とログを確認
+   - `data/pages.csv` に結果が出力される
+
+#### 💻 CLIでのジョブ実行
+
+```bash
+# 基本的なETLパイプライン実行
+docker-compose run --rm dagster-cli uv run python ui/cli.py --job wikipedia_etl_job
+
+# フィルタ処理付きパイプライン
+docker-compose run --rm dagster-cli uv run python ui/cli.py --job filter_pages_job
+
+# 完全パイプライン（全アセット実行）
+docker-compose run --rm dagster-cli uv run python ui/cli.py --job full_pipeline_job
+
+# データ検証のみ実行
+docker-compose run --rm dagster-cli uv run python ui/cli.py --job validation_job
+
+# 詳細ログ付きで実行
+docker-compose run --rm dagster-cli uv run python ui/cli.py --job wikipedia_etl_job --verbose
+
+# 利用可能なジョブ一覧を表示
+docker-compose run --rm dagster-cli uv run python ui/cli.py --list-jobs
+```
+
+#### 📁 出力ファイルの確認
+
+```bash
+# 生成されたデータファイルを確認
+docker-compose run --rm dagster-cli ls -la data/
+docker-compose run --rm dagster-cli head -5 data/pages.csv
+
+# ホストマシンから直接確認
+ls -la data/
+cat data/pages.csv
 ```
 
 ## 🔧 利用可能なジョブ
@@ -94,6 +148,7 @@ docker-compose run dagster-app
 
 ## 🧪 テスト実行
 
+### ローカル実行
 ```bash
 # 全テスト実行
 uv run pytest
@@ -103,6 +158,18 @@ uv run pytest --cov=domain --cov=infrastructure --cov=usecase
 
 # 特定のテストファイルのみ実行
 uv run pytest tests/test_domain.py
+```
+
+### Docker実行
+```bash
+# Docker内で全テスト実行
+docker-compose run --rm dagster-test
+
+# 特定のテストファイルのみ実行
+docker-compose run --rm dagster-test uv run pytest tests/test_domain.py
+
+# カバレッジ付きでテスト実行
+docker-compose run --rm dagster-test uv run pytest --cov=domain --cov=infrastructure --cov=usecase
 ```
 
 ## 📊 アセット構成
@@ -147,6 +214,72 @@ OUTPUT_PATH=data/pages.csv
 - **pytest**: テストフレームワーク
 - **uv**: Python依存関係管理
 - **Docker**: コンテナ実行環境
+
+## 🔧 Dockerトラブルシューティング
+
+### コンテナの状態確認
+```bash
+# 実行中のコンテナを確認
+docker-compose ps
+
+# Web UIのログを確認
+docker-compose logs -f dagster-web
+
+# 特定のコンテナに接続
+docker-compose exec dagster-web bash
+```
+
+### よくある問題と解決方法
+
+#### 1. ポート3000が既に使用されている
+```bash
+# 別のポートを使用する場合（docker-compose.yml を編集）
+# "3001:3000" に変更してアクセスは http://localhost:3001
+```
+
+#### 2. データが生成されない
+```bash
+# dataディレクトリの権限を確認
+ls -la data/
+
+# ボリュームマウントの確認
+docker-compose run --rm dagster-cli ls -la /app/data/
+```
+
+#### 3. コンテナの完全リセット
+```bash
+# すべて停止してクリーンアップ
+docker-compose down
+docker volume prune -f
+rm -rf data/*
+
+# 再構築して起動
+docker-compose up --build -d dagster-web
+```
+
+### よく使うコマンド集
+```bash
+# === 基本操作 ===
+# Web UI起動（推奨）
+docker-compose up -d dagster-web
+
+# ETLパイプライン実行
+docker-compose run --rm dagster-cli uv run python ui/cli.py --job wikipedia_etl_job
+
+# テスト実行
+docker-compose run --rm dagster-test
+
+# === データ確認 ===
+# 出力ファイルの確認
+docker-compose run --rm dagster-cli head -10 data/pages.csv
+
+# === メンテナンス ===
+# 全停止
+docker-compose down
+
+# 完全リビルド
+docker-compose build --no-cache && docker-compose up -d dagster-web
+```
 
 ## 📝 開発のポイント
 
