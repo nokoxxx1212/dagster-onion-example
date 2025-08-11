@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from datetime import datetime
-from dagster import asset, AssetExecutionContext
+from dagster import asset, AssetExecutionContext, MetadataValue
 from dotenv import load_dotenv
 
 from domain.models import WikipediaApiConfig, ProcessingResult
@@ -13,15 +13,25 @@ from infrastructure.storage import StorageFactory, DataExporter
 load_dotenv()
 
 
-@asset
-def raw_wikipedia_pages(context: AssetExecutionContext) -> pd.DataFrame:
+@asset(
+    description="Wikipedia APIからページ一覧（pageid, title）を取得する",
+    group_name="wikipedia_etl",
+)
+def fetch_raw_pages(context: AssetExecutionContext) -> pd.DataFrame:
     """
-    Fetch raw Wikipedia pages from API
+    Wikipedia APIからページ一覧を取得し、生データのDataFrameを返す。
     
-    Returns:
-        DataFrame with raw Wikipedia page data
+    処理内容:
+      1. 環境変数からAPI URLを取得
+      2. WikipediaApiConfigでリクエスト設定
+      3. allpages APIエンドポイントを呼び出し
+      4. JSONレスポンスをDataFrameに変換
+    
+    出力:
+      - pageid(int): Wikipedia固有のページID
+      - title(str): ページタイトル
     """
-    context.log.info("Fetching Wikipedia pages from API")
+    context.log.info("fetch_raw_pages: 開始")
     
     # Get configuration from environment
     api_url = os.getenv("WIKI_API_URL", "https://en.wikipedia.org/w/api.php")
@@ -36,54 +46,85 @@ def raw_wikipedia_pages(context: AssetExecutionContext) -> pd.DataFrame:
     repository = WikipediaRepository()
     df = repository.fetch_wikipedia_pages(api_config)
     
-    context.log.info(f"Fetched {len(df)} pages from Wikipedia API")
+    # Add dynamic metadata
+    preview_md = df.head(3).to_markdown(index=False) if not df.empty else "No data"
+    context.add_output_metadata({
+        "row_count": len(df),
+        "preview": MetadataValue.md(preview_md),
+        "api_url": MetadataValue.url(api_url),
+        "columns": list(df.columns),
+    })
+    
+    context.log.info(f"fetch_raw_pages: 完了 rows={len(df)} api_url={api_url}")
     
     return df
 
 
-@asset
-def validated_pages(context: AssetExecutionContext, raw_wikipedia_pages: pd.DataFrame) -> pd.DataFrame:
+@asset(
+    description="Panderaでスキーマ検証し、欠損/型不正を弾いたDataFrameを返す",
+    group_name="wikipedia_etl",
+)
+def validate_pages(context: AssetExecutionContext, fetch_raw_pages: pd.DataFrame) -> pd.DataFrame:
     """
-    Validate Wikipedia pages data
+    Panderaでスキーマ検証し、欠損/型不正を弾いたDataFrameを返す。
     
-    Args:
-        raw_wikipedia_pages: Raw data from Wikipedia API
-        
-    Returns:
-        Validated DataFrame
-        
-    Raises:
-        ValueError: If validation fails
+    処理内容:
+      1. PageSchemaでDataFrameを検証
+      2. 型変換・必須フィールドチェック
+      3. 検証エラー時は詳細ログと例外発生
+    
+    入力:
+      - fetch_raw_pages: pageid(int), title(str)
+    
+    出力:
+      - pageid(int), title(str) のみを含む検証済みDataFrame
     """
-    context.log.info("Validating Wikipedia pages data")
+    context.log.info("validate_pages: 開始")
     
     # Validate data using domain service
-    validation_result = ValidationService.validate_wikipedia_pages(raw_wikipedia_pages)
+    validation_result = ValidationService.validate_wikipedia_pages(fetch_raw_pages)
     
     if not validation_result.success:
         error_msg = f"Data validation failed: {validation_result.message}"
-        context.log.error(error_msg)
+        context.log.error(f"validate_pages: 検証失敗 {error_msg}")
         for error in validation_result.errors:
             context.log.error(f"Validation error: {error}")
         raise ValueError(error_msg)
     
-    context.log.info(f"Data validation successful: {validation_result.record_count} records validated")
+    # Add dynamic metadata
+    preview_md = fetch_raw_pages.head(3).to_markdown(index=False) if not fetch_raw_pages.empty else "No data"
+    context.add_output_metadata({
+        "row_count": len(fetch_raw_pages),
+        "preview": MetadataValue.md(preview_md),
+        "validation_success": validation_result.success,
+        "validation_message": validation_result.message,
+    })
     
-    return raw_wikipedia_pages
+    context.log.info(f"validate_pages: 完了 rows={len(fetch_raw_pages)} validation=OK")
+    
+    return fetch_raw_pages
 
 
-@asset
-def processed_pages(context: AssetExecutionContext, validated_pages: pd.DataFrame) -> pd.DataFrame:
+@asset(
+    description="データクリーニングと前処理を実行し、メタデータを付与する",
+    group_name="wikipedia_etl",
+)
+def clean_and_process_pages(context: AssetExecutionContext, validate_pages: pd.DataFrame) -> pd.DataFrame:
     """
-    Process and clean Wikipedia pages data
+    データクリーニングと前処理を実行し、メタデータを付与する。
     
-    Args:
-        validated_pages: Validated Wikipedia pages data
-        
-    Returns:
-        Processed DataFrame
+    処理内容:
+      1. テキストデータのクリーニング（空白除去、正規化）
+      2. 重複レコードの除去（pageidベース）
+      3. メタデータカラムの追加（処理時刻、データソース）
+    
+    入力:
+      - validate_pages: 検証済みのpageid(int), title(str)
+    
+    出力:
+      - 元のカラム + processed_at(str), source(str) を含むDataFrame
     """
-    context.log.info("Processing Wikipedia pages data")
+    context.log.info("clean_and_process_pages: 開始")
     
     # Create processing service
     repository = WikipediaRepository()  # Not used in processing, but required for service
@@ -91,7 +132,7 @@ def processed_pages(context: AssetExecutionContext, validated_pages: pd.DataFram
     
     # Clean text data
     processed_df = processing_service.clean_text_data(
-        validated_pages, 
+        validate_pages, 
         text_columns=["title"]
     )
     
@@ -108,23 +149,41 @@ def processed_pages(context: AssetExecutionContext, validated_pages: pd.DataFram
     }
     processed_df = processing_service.add_metadata_columns(processed_df, metadata)
     
-    context.log.info(f"Processing complete: {len(processed_df)} records processed")
+    # Add dynamic metadata
+    preview_md = processed_df.head(3).to_markdown(index=False) if not processed_df.empty else "No data"
+    context.add_output_metadata({
+        "row_count": len(processed_df),
+        "preview": MetadataValue.md(preview_md),
+        "columns_added": ["processed_at", "source"],
+        "duplicates_removed": len(validate_pages) - len(processed_df),
+    })
+    
+    context.log.info(f"clean_and_process_pages: 完了 rows={len(processed_df)} duplicates_removed={len(validate_pages) - len(processed_df)}")
     
     return processed_df
 
 
-@asset
-def exported_csv(context: AssetExecutionContext, processed_pages: pd.DataFrame) -> str:
+@asset(
+    description="処理済みデータをCSVファイルに出力する",
+    group_name="wikipedia_etl",
+)
+def store_pages_to_csv(context: AssetExecutionContext, clean_and_process_pages: pd.DataFrame) -> str:
     """
-    Export processed data to CSV file
+    処理済みデータをCSVファイルに出力する。
     
-    Args:
-        processed_pages: Processed Wikipedia pages data
-        
-    Returns:
-        Path to exported CSV file
+    処理内容:
+      1. 環境変数からCSV出力パスを取得
+      2. StorageAdapterでCSV書き込み
+      3. エクスポート メタデータを付与
+      4. ファイルパスを返却
+    
+    入力:
+      - clean_and_process_pages: クリーニング済みのDataFrame
+    
+    出力:
+      - 出力先CSVファイルパス(str)
     """
-    context.log.info("Exporting data to CSV")
+    context.log.info("store_pages_to_csv: 開始")
     
     # Get output path from environment
     output_path = os.getenv("OUTPUT_PATH", "data/pages.csv")
@@ -136,39 +195,56 @@ def exported_csv(context: AssetExecutionContext, processed_pages: pd.DataFrame) 
     # Export data with additional metadata
     export_metadata = {
         "export_timestamp": datetime.now().isoformat(),
-        "record_count": len(processed_pages)
+        "record_count": len(clean_and_process_pages)
     }
     
     result = exporter.export_with_metadata(
-        processed_pages,
+        clean_and_process_pages,
         output_path,
         export_metadata
     )
     
     if not result.success:
         error_msg = f"Export failed: {result.message}"
-        context.log.error(error_msg)
+        context.log.error(f"store_pages_to_csv: エクスポート失敗 {error_msg}")
         for error in result.errors:
             context.log.error(f"Export error: {error}")
         raise RuntimeError(error_msg)
     
-    context.log.info(f"Export successful: {result.message}")
+    # Add dynamic metadata
+    resolved_path = os.path.abspath(output_path)
+    context.add_output_metadata({
+        "output_path": MetadataValue.path(resolved_path),
+        "record_count": len(clean_and_process_pages),
+        "file_size_bytes": os.path.getsize(resolved_path) if os.path.exists(resolved_path) else 0,
+    })
+    
+    context.log.info(f"store_pages_to_csv: 完了 rows={len(clean_and_process_pages)} path={resolved_path}")
     
     return output_path
 
 
-@asset
-def filtered_pages(context: AssetExecutionContext, processed_pages: pd.DataFrame) -> pd.DataFrame:
+@asset(
+    description="特定の条件でページをフィルタリングし、対象データを抽出する",
+    group_name="wikipedia_etl",
+)
+def filter_pages_by_criteria(context: AssetExecutionContext, clean_and_process_pages: pd.DataFrame) -> pd.DataFrame:
     """
-    Filter pages based on title criteria
+    特定の条件でページをフィルタリングし、対象データを抽出する。
     
-    Args:
-        processed_pages: Processed Wikipedia pages data
-        
-    Returns:
-        Filtered DataFrame
+    処理内容:
+      1. タイトルに'Wikipedia'を含むページを抽出
+      2. 該当なしの場合'Main'を含むページで再試行
+      3. それでも該当なしの場合は先頭半分を返却
+      4. フォールバック機能で必ず何らかのデータを返す
+    
+    入力:
+      - clean_and_process_pages: クリーニング済みのDataFrame
+    
+    出力:
+      - フィルタリング条件に合致したDataFrame
     """
-    context.log.info("Filtering pages by title criteria")
+    context.log.info("filter_pages_by_criteria: 開始")
     
     # Create processing service
     repository = WikipediaRepository()
@@ -179,48 +255,81 @@ def filtered_pages(context: AssetExecutionContext, processed_pages: pd.DataFrame
         "title": "contains:Wikipedia"
     }
     
-    filtered_df = processing_service.filter_data(processed_pages, filters)
+    filtered_df = processing_service.filter_data(clean_and_process_pages, filters)
+    filter_criteria = "title contains 'Wikipedia'"
     
     # If no results with first filter, try a broader filter
     if len(filtered_df) == 0:
-        context.log.info("No pages found with 'Wikipedia' filter, trying broader criteria...")
+        context.log.info("filter_pages_by_criteria: フィルタ1（Wikipedia）該当なし、フィルタ2を実行")
         filters = {
             "title": "contains:Main"
         }
-        filtered_df = processing_service.filter_data(processed_pages, filters)
+        filtered_df = processing_service.filter_data(clean_and_process_pages, filters)
+        filter_criteria = "title contains 'Main'"
     
     # If still no results, take first half of pages
     if len(filtered_df) == 0:
-        context.log.info("No pages found with any filter, taking first half of pages...")
-        half_point = len(processed_pages) // 2
-        filtered_df = processed_pages.head(half_point) if half_point > 0 else processed_pages.head(1)
+        context.log.info("filter_pages_by_criteria: フィルタ2（Main）該当なし、先頭半分を取得")
+        half_point = len(clean_and_process_pages) // 2
+        filtered_df = clean_and_process_pages.head(half_point) if half_point > 0 else clean_and_process_pages.head(1)
+        filter_criteria = f"first {half_point} records (fallback)"
     
-    context.log.info(f"Filtering complete: {len(filtered_df)} records match criteria")
+    # Add dynamic metadata
+    preview_md = filtered_df.head(3).to_markdown(index=False) if not filtered_df.empty else "No data"
+    context.add_output_metadata({
+        "row_count": len(filtered_df),
+        "preview": MetadataValue.md(preview_md),
+        "filter_criteria": filter_criteria,
+        "original_count": len(clean_and_process_pages),
+        "filter_ratio": len(filtered_df) / len(clean_and_process_pages) if len(clean_and_process_pages) > 0 else 0,
+    })
+    
+    context.log.info(f"filter_pages_by_criteria: 完了 rows={len(filtered_df)} criteria='{filter_criteria}'")
     
     return filtered_df
 
 
-@asset  
-def filtered_csv_export(context: AssetExecutionContext, filtered_pages: pd.DataFrame) -> str:
+@asset(
+    description="フィルタリング済みデータを別のCSVファイルに出力する",
+    group_name="wikipedia_etl",
+)
+def store_filtered_pages_to_csv(context: AssetExecutionContext, filter_pages_by_criteria: pd.DataFrame) -> str:
     """
-    Export filtered data to separate CSV file
+    フィルタリング済みデータを別のCSVファイルに出力する。
     
-    Args:
-        filtered_pages: Filtered Wikipedia pages data
-        
-    Returns:
-        Path to exported filtered CSV file
+    処理内容:
+      1. フィルタ済みDataFrameの空チェック
+      2. 空の場合はヘッダーのみのプレースホルダーファイル作成
+      3. データありの場合は通常のCSVエクスポート処理
+      4. エクスポートメタデータ付与
+    
+    入力:
+      - filter_pages_by_criteria: フィルタリング済みのDataFrame
+    
+    出力:
+      - フィルタ済みCSVファイルパス(str)
     """
-    context.log.info("Exporting filtered data to CSV")
+    context.log.info("store_filtered_pages_to_csv: 開始")
+    
+    output_path = "data/filtered_pages.csv"
     
     # Check if filtered_pages is empty
-    if filtered_pages.empty:
-        context.log.warning("Filtered pages DataFrame is empty, creating placeholder file")
+    if filter_pages_by_criteria.empty:
+        context.log.warning("store_filtered_pages_to_csv: 空のDataFrame、プレースホルダー作成")
         # Create empty CSV with headers
-        import pandas as pd
         empty_df = pd.DataFrame(columns=["pageid", "title", "processed_at", "source"])
-        output_path = "data/filtered_pages.csv"
         empty_df.to_csv(output_path, index=False)
+        
+        # Add metadata for empty case
+        resolved_path = os.path.abspath(output_path)
+        context.add_output_metadata({
+            "output_path": MetadataValue.path(resolved_path),
+            "record_count": 0,
+            "is_placeholder": True,
+            "file_size_bytes": os.path.getsize(resolved_path) if os.path.exists(resolved_path) else 0,
+        })
+        
+        context.log.info(f"store_filtered_pages_to_csv: プレースホルダー完了 path={resolved_path}")
         return output_path
     
     # Create storage adapter and exporter
@@ -228,26 +337,34 @@ def filtered_csv_export(context: AssetExecutionContext, filtered_pages: pd.DataF
     exporter = DataExporter(storage_adapter)
     
     # Export filtered data
-    output_path = "data/filtered_pages.csv"
     export_metadata = {
         "export_timestamp": datetime.now().isoformat(),
-        "filter_criteria": "title contains 'List of'",
-        "record_count": len(filtered_pages)
+        "filter_criteria": "dynamic_filter_applied",
+        "record_count": len(filter_pages_by_criteria)
     }
     
     result = exporter.export_with_metadata(
-        filtered_pages,
+        filter_pages_by_criteria,
         output_path,
         export_metadata
     )
     
     if not result.success:
         error_msg = f"Filtered export failed: {result.message}"
-        context.log.error(error_msg)
+        context.log.error(f"store_filtered_pages_to_csv: エクスポート失敗 {error_msg}")
         for error in result.errors:
             context.log.error(f"Export error: {error}")
         raise RuntimeError(error_msg)
     
-    context.log.info(f"Filtered export successful: {result.message}")
+    # Add dynamic metadata for successful export
+    resolved_path = os.path.abspath(output_path)
+    context.add_output_metadata({
+        "output_path": MetadataValue.path(resolved_path),
+        "record_count": len(filter_pages_by_criteria),
+        "is_placeholder": False,
+        "file_size_bytes": os.path.getsize(resolved_path) if os.path.exists(resolved_path) else 0,
+    })
+    
+    context.log.info(f"store_filtered_pages_to_csv: 完了 rows={len(filter_pages_by_criteria)} path={resolved_path}")
     
     return output_path
