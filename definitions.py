@@ -1,12 +1,12 @@
 from dagster import Definitions
 
 from usecase.assets import (
-    raw_wikipedia_pages,
-    validated_pages,
-    processed_pages,
-    exported_csv,
-    filtered_pages,
-    filtered_csv_export
+    fetch_raw_pages,
+    validate_pages,
+    clean_and_process_pages,
+    store_pages_to_csv,
+    filter_pages_by_criteria,
+    store_filtered_pages_to_csv
 )
 
 from usecase.jobs import (
@@ -19,12 +19,12 @@ from usecase.jobs import (
 
 # Define all assets
 assets = [
-    raw_wikipedia_pages,
-    validated_pages,
-    processed_pages,
-    exported_csv,
-    filtered_pages,
-    filtered_csv_export
+    fetch_raw_pages,
+    validate_pages,
+    clean_and_process_pages,
+    store_pages_to_csv,
+    filter_pages_by_criteria,
+    store_filtered_pages_to_csv
 ]
 
 # Define all jobs
