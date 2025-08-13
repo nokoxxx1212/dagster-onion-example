@@ -11,12 +11,13 @@
 ### ディレクトリ構成
 ```
 data-pipeline-etl/
-├── domain/                 # ドメイン層（ビジネスロジックの中心）
-│   ├── models.py           # Pandera でのスキーマ定義
-│   ├── repositories.py     # 外部APIの取得処理
-│   └── services.py         # バリデーションなどロジック処理
-├── infrastructure/         # 外部インターフェース層（永続化やI/O）
-│   └── storage.py          # CSV・JSON保存処理
+├── domain/                 # ドメイン層（抽象化とビジネスロジック）
+│   ├── models.py           # Pandera でのスキーマ定義・データ構造
+│   ├── repositories.py     # 抽象インターフェース定義
+│   └── services.py         # バリデーションなどビジネスロジック処理
+├── infrastructure/         # インフラ層（外部システム実装）
+│   ├── api_clients.py      # 外部API実装（HTTP通信）
+│   └── storage.py          # ファイルシステム実装（CSV・JSON保存）
 ├── usecase/                # ユースケース層（Dagster資産の定義）
 │   ├── assets.py           # Dagsterの @asset 定義
 │   └── jobs.py             # Dagsterのジョブ定義
@@ -218,7 +219,7 @@ assets = [
 usecase/assets.py:fetch_raw_pages()
     ↓ 環境変数から設定取得
     ↓ WikipediaApiConfig作成
-    ↓ domain/repositories.py:WikipediaRepository.fetch_wikipedia_pages()
+    ↓ infrastructure/api_clients.py:WikipediaApiClient.fetch_wikipedia_pages()
     ↓ requests.get() → Wikipedia API呼び出し
     ↓ JSONレスポンス → pandas.DataFrame変換
 ```
@@ -261,7 +262,7 @@ definitions.py (アセット定義)
 Dagster実行エンジン
   ↓
 ┌─ fetch_raw_pages ─────────────────┐
-│ domain/repositories.py            │
+│ infrastructure/api_clients.py     │
 │ └─ Wikipedia API → DataFrame      │
 └───────────────────┬───────────────┘
                     ↓
@@ -282,12 +283,30 @@ Dagster実行エンジン
 ```
 
 ### オニオンアーキテクチャでの責務分離
-- **UI層** (`ui/cli.py`): コマンドライン入力・ユーザーインターフェース
-- **ユースケース層** (`usecase/assets.py`): Dagsterアセット定義・ワークフロー
-- **ドメイン層** (`domain/`): ビジネスロジック・データ検証・API呼び出し
-- **インフラ層** (`infrastructure/`): ファイル保存・外部システム連携
 
-この設計により、各層が独立してテスト可能で、将来的な拡張（BigQuery出力、別API連携など）が容易になっています。
+#### **正しい層分離（修正後）**
+- **UI層** (`ui/cli.py`): コマンドライン入力・ユーザーインターフェース
+- **ユースケース層** (`usecase/assets.py`): Dagsterアセット定義・ワークフローの組み立て
+- **ドメイン層** (`domain/`): **抽象インターフェース・ビジネスロジック・データ検証**
+  - `repositories.py`: 抽象インターフェース定義のみ
+  - `services.py`: ビジネスロジック
+  - `models.py`: データ構造・スキーマ定義
+- **インフラ層** (`infrastructure/`): **外部システムとの実際の通信**
+  - `api_clients.py`: 外部API実装（HTTP通信）
+  - `storage.py`: ファイルシステム実装
+
+#### **アーキテクチャの利点**
+```
+🔵 Domain層: 抽象化により外部依存なし
+    ↑ 実装
+🟠 Infrastructure層: 具体的な外部アクセス
+    ↑ 使用
+🟡 Usecase層: ビジネスロジックの組み立て
+    ↑ 操作
+🟢 UI層: ユーザーとの接点
+```
+
+この正しい設計により、各層が独立してテスト可能で、将来的な拡張（BigQuery出力、キャッシュ機能、別API連携など）が容易になっています。
 
 ## 🔧 設定とカスタマイズ
 
@@ -303,10 +322,11 @@ OUTPUT_PATH=data/pages.csv
 
 ### 新しいデータソースの追加
 
-1. `domain/repositories.py`に新しいRepositoryクラスを追加
-2. `domain/models.py`にスキーマ定義を追加
-3. `usecase/assets.py`に新しいアセットを定義
-4. `usecase/jobs.py`に新しいジョブを追加
+1. `domain/repositories.py`に新しい抽象インターフェースを追加
+2. `infrastructure/api_clients.py`に実際のAPI実装クラスを追加
+3. `domain/models.py`にスキーマ定義を追加
+4. `usecase/assets.py`に新しいアセットを定義（infrastructure実装を使用）
+5. `usecase/jobs.py`に新しいジョブを追加
 
 ### 出力形式の拡張
 

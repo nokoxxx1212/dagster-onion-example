@@ -5,9 +5,9 @@ from dagster import asset, AssetExecutionContext, MetadataValue
 from dotenv import load_dotenv
 
 from domain.models import WikipediaApiConfig, ProcessingResult
-from domain.repositories import WikipediaRepository
 from domain.services import ValidationService, DataProcessingService
 from infrastructure.storage import StorageFactory, DataExporter
+from infrastructure.api_clients import WikipediaApiClient
 
 # Load environment variables
 load_dotenv()
@@ -37,9 +37,9 @@ def fetch_raw_pages(context: AssetExecutionContext) -> pd.DataFrame:
         limit=50  # Limit for demo purposes
     )
     
-    # Create repository and fetch data
-    repository = WikipediaRepository()
-    df = repository.fetch_wikipedia_pages(api_config)
+    # Create API client and fetch data
+    api_client = WikipediaApiClient()
+    df = api_client.fetch_wikipedia_pages(api_config)
     
     # Add dynamic metadata
     preview_md = df.head(3).to_markdown(index=False) if not df.empty else "No data"
@@ -115,8 +115,8 @@ def clean_and_process_pages(context: AssetExecutionContext, validate_pages: pd.D
     context.log.info("clean_and_process_pages: 開始")
     
     # Create processing service
-    repository = WikipediaRepository()  # Not used in processing, but required for service
-    processing_service = DataProcessingService(repository)
+    api_client = WikipediaApiClient()  # Not used in processing, but required for service
+    processing_service = DataProcessingService(api_client)
     
     # Clean text data
     processed_df = processing_service.clean_text_data(
@@ -226,8 +226,8 @@ def filter_pages_by_criteria(context: AssetExecutionContext, clean_and_process_p
     context.log.info("filter_pages_by_criteria: 開始")
     
     # Create processing service
-    repository = WikipediaRepository()
-    processing_service = DataProcessingService(repository)
+    api_client = WikipediaApiClient()
+    processing_service = DataProcessingService(api_client)
     
     # Apply filters - try multiple criteria
     filters = {

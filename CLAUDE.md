@@ -86,12 +86,13 @@ docstringはGoogle style（処理内容含む1行目 + Args/Returns）で記述
 
 ```
 wikipedia_project/
-├── domain/                 # ドメイン層（ビジネスロジックの中心）
-│   ├── models.py           # Pandera でのスキーマ定義（入力・出力形式）
-│   ├── repositories.py     # 外部API（Wikipedia）の取得処理
-│   └── services.py         # バリデーションなどロジック処理
-├── infrastructure/         # 外部インターフェース層（永続化やI/O）
-│   └── storage.py          # CSV保存処理（BigQuery対応可能）
+├── domain/                 # ドメイン層（抽象化とビジネスロジック）
+│   ├── models.py           # Pandera でのスキーマ定義・データ構造
+│   ├── repositories.py     # 抽象インターフェース定義のみ
+│   └── services.py         # バリデーションなどビジネスロジック処理
+├── infrastructure/         # インフラ層（外部システム実装）
+│   ├── api_clients.py      # 外部API実装（HTTP通信）
+│   └── storage.py          # ファイルシステム実装（CSV・BigQuery等）
 ├── usecase/                # ユースケース層（Dagster資産の定義）
 │   ├── assets.py           # Dagsterの @asset 定義（処理のステップ）
 │   └── jobs.py             # Dagsterのジョブ定義（実行単位）
@@ -103,6 +104,33 @@ wikipedia_project/
 ├── docker-compose.yml      # コンテナオーケストレーション
 ├── .env                    # API URLや出力先などの環境変数
 
+```
+
+---
+
+## 🏗️ オニオンアーキテクチャの詳細
+
+### 🔵 Domain層 - 抽象化とビジネスロジック
+- **repositories.py**: 外部データアクセスの抽象インターフェース定義
+- **models.py**: データ構造・スキーマ定義（Pandera含む）
+- **services.py**: ビジネスロジック・データ処理ルール
+
+### 🟠 Infrastructure層 - 外部システム実装
+- **api_clients.py**: 実際のHTTP通信・外部API呼び出し
+- **storage.py**: ファイルシステム・データベースアクセス
+
+### 🟡 Usecase層 - ワークフロー定義
+- **assets.py**: Dagsterアセット定義・処理フロー
+- **jobs.py**: ジョブ定義・実行単位
+
+### 🟢 UI層 - ユーザーインターフェース
+- **cli.py**: コマンドライン操作
+
+### 依存関係の流れ
+```
+UI層 → Usecase層 → Domain層 ← Infrastructure層
+                      ↑
+                  実装・依存注入
 ```
 
 ---
@@ -137,6 +165,7 @@ OUTPUT_PATH=data/pages.csv
 | **アセットの追加**     | 必ず `usecase/assets.py` に追加し、`definitions.py` にも登録<br/>**「UIだけ見れば8割わかる」パターンを適用** |
 | **ジョブの追加**      | `usecase/jobs.py` に定義し、CLI 実行可能にする                |
 | **スキーマ修正**      | `domain/models.py` を更新し、影響範囲のサービス層・アセットも更新        |
+| **新データソース追加** | `domain/repositories.py`に抽象インターフェース追加<br/>`infrastructure/api_clients.py`に実装クラス追加 |
 | **出力処理の変更**     | `infrastructure/storage.py` に実装（例：BQ出力に拡張）        |
 | **新CLIオプション追加** | `ui/cli.py` にコマンド引数として拡張（例：--env, --output）       |
 
