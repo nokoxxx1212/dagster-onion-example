@@ -4,7 +4,7 @@ import pandera.pandas as pa
 from unittest.mock import Mock, patch
 
 from domain.models import WikipediaApiConfig, ProcessingResult, PageSchema
-from domain.repositories import WikipediaRepository, GenericApiRepository
+from infrastructure.api_clients import WikipediaApiClient, GenericApiClient
 from domain.services import ValidationService, DataProcessingService
 
 
@@ -67,13 +67,13 @@ class TestPageSchema:
             PageSchema.validate(df)
 
 
-class TestWikipediaRepository:
+class TestWikipediaApiClient:
     
     def test_init(self):
-        repo = WikipediaRepository(timeout=45)
+        repo = WikipediaApiClient(timeout=45)
         assert repo.timeout == 45
     
-    @patch('domain.repositories.requests.get')
+    @patch('infrastructure.api_clients.requests.get')
     def test_fetch_wikipedia_pages_success(self, mock_get):
         # Mock successful API response
         mock_response = Mock()
@@ -88,7 +88,7 @@ class TestWikipediaRepository:
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
-        repo = WikipediaRepository()
+        repo = WikipediaApiClient()
         config = WikipediaApiConfig("https://test.api.com")
         
         df = repo.fetch_wikipedia_pages(config)
@@ -97,7 +97,7 @@ class TestWikipediaRepository:
         assert list(df.columns) == ["pageid", "title"]
         assert df.iloc[0]["title"] == "Test Page 1"
     
-    @patch('domain.repositories.requests.get')
+    @patch('infrastructure.api_clients.requests.get')
     def test_fetch_wikipedia_pages_empty_response(self, mock_get):
         # Mock empty API response
         mock_response = Mock()
@@ -107,7 +107,7 @@ class TestWikipediaRepository:
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
-        repo = WikipediaRepository()
+        repo = WikipediaApiClient()
         config = WikipediaApiConfig("https://test.api.com")
         
         df = repo.fetch_wikipedia_pages(config)
@@ -115,12 +115,12 @@ class TestWikipediaRepository:
         assert len(df) == 0
         assert list(df.columns) == ["pageid", "title"]
     
-    @patch('domain.repositories.requests.get')
+    @patch('infrastructure.api_clients.requests.get')
     def test_fetch_wikipedia_pages_api_error(self, mock_get):
         # Mock API error
         mock_get.side_effect = Exception("API Error")
         
-        repo = WikipediaRepository()
+        repo = WikipediaApiClient()
         config = WikipediaApiConfig("https://test.api.com")
         
         with pytest.raises(Exception):

@@ -2,7 +2,7 @@ from typing import Dict, Any, List
 import pandas as pd
 import pandera.pandas as pa
 from .models import PageSchema, ProcessingResult
-from .repositories import DataRepository
+from .repositories import WikipediaRepository
 
 
 class ValidationService:
@@ -105,7 +105,7 @@ class ValidationService:
 class DataProcessingService:
     """Service for data processing operations"""
     
-    def __init__(self, repository: DataRepository):
+    def __init__(self, repository: WikipediaRepository):
         self.repository = repository
         self.validation_service = ValidationService()
     
