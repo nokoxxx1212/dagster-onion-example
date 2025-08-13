@@ -91,7 +91,7 @@ docker-compose up -d dagster-web
 
 1. **アセットの実行**
    - 「Assets」タブでアセット一覧を確認
-   - 実行したいアセット（例: `exported_csv`）をクリック
+   - 実行したいアセット（例: `store_pages_to_csv`）をクリック
    - 「Materialize」→「Materialize with upstream」で依存関係含めて実行
 
 2. **ジョブの実行**
@@ -174,13 +174,20 @@ docker-compose run --rm dagster-test uv run pytest --cov=domain --cov=infrastruc
 
 ## 📊 アセット構成
 
-### データフロー
-1. `raw_wikipedia_pages` - Wikipedia APIからの生データ取得
-2. `validated_pages` - Panderaによるデータバリデーション
-3. `processed_pages` - データクリーニングと前処理
-4. `exported_csv` - CSV形式でのエクスポート
-5. `filtered_pages` - 条件による絞り込み処理
-6. `filtered_csv_export` - フィルタ済みデータのエクスポート
+### データフロー（「UIだけ見れば8割わかる Dagster 資産」適用済み）
+1. `fetch_raw_pages` - Wikipedia APIからページ一覧を取得し、環境変数設定とAPI呼び出しを実行
+2. `validate_pages` - Panderaでスキーマ検証を実行し、型変換と必須フィールドチェックを行う
+3. `clean_and_process_pages` - テキストクリーニング、重複除去、メタデータ付与を実行
+4. `store_pages_to_csv` - 処理済みデータを環境変数で指定されたパスにCSVファイルとして出力
+5. `filter_pages_by_criteria` - タイトル条件でページをフィルタリングし、フォールバック機能で必ずデータを返す
+6. `store_filtered_pages_to_csv` - フィルタリング済みデータを空チェックしてCSVファイルに出力
+
+### ベストプラクティス適用内容
+- **動詞ベースの命名**: `fetch_`, `validate_`, `clean_`, `store_`, `filter_` パターン
+- **Google style docstring**: 処理内容を含む1行目 + Args/Returns（日本語）
+- **動的メタデータ**: UI表示用の`row_count`, `preview`, `output_path`等
+- **構造化ログ**: `{asset_name}: 開始/完了 {key=value}` パターン
+- **明確な依存関係**: アセット間の依存関係とフォールバック機能
 
 ## 🔧 設定とカスタマイズ
 

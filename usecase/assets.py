@@ -18,18 +18,13 @@ load_dotenv()
     group_name="wikipedia_etl",
 )
 def fetch_raw_pages(context: AssetExecutionContext) -> pd.DataFrame:
-    """
-    Wikipedia APIからページ一覧を取得し、生データのDataFrameを返す。
+    """Wikipedia APIからページ一覧を取得し、環境変数設定とAPI呼び出しを実行する。
     
-    処理内容:
-      1. 環境変数からAPI URLを取得
-      2. WikipediaApiConfigでリクエスト設定
-      3. allpages APIエンドポイントを呼び出し
-      4. JSONレスポンスをDataFrameに変換
-    
-    出力:
-      - pageid(int): Wikipedia固有のページID
-      - title(str): ページタイトル
+    Args:
+        context: Dagsterアセット実行コンテキスト
+        
+    Returns:
+        pd.DataFrame: pageidとtitleカラムを含む生データのDataFrame
     """
     context.log.info("fetch_raw_pages: 開始")
     
@@ -65,19 +60,17 @@ def fetch_raw_pages(context: AssetExecutionContext) -> pd.DataFrame:
     group_name="wikipedia_etl",
 )
 def validate_pages(context: AssetExecutionContext, fetch_raw_pages: pd.DataFrame) -> pd.DataFrame:
-    """
-    Panderaでスキーマ検証し、欠損/型不正を弾いたDataFrameを返す。
+    """Panderaでスキーマ検証を実行し、型変換と必須フィールドチェックを行う。
     
-    処理内容:
-      1. PageSchemaでDataFrameを検証
-      2. 型変換・必須フィールドチェック
-      3. 検証エラー時は詳細ログと例外発生
-    
-    入力:
-      - fetch_raw_pages: pageid(int), title(str)
-    
-    出力:
-      - pageid(int), title(str) のみを含む検証済みDataFrame
+    Args:
+        context: Dagsterアセット実行コンテキスト
+        fetch_raw_pages: 生のWikipediaページデータ
+        
+    Returns:
+        pd.DataFrame: 検証済みのpageidとtitleカラムを含むDataFrame
+        
+    Raises:
+        ValueError: データ検証が失敗した場合
     """
     context.log.info("validate_pages: 開始")
     
@@ -110,19 +103,14 @@ def validate_pages(context: AssetExecutionContext, fetch_raw_pages: pd.DataFrame
     group_name="wikipedia_etl",
 )
 def clean_and_process_pages(context: AssetExecutionContext, validate_pages: pd.DataFrame) -> pd.DataFrame:
-    """
-    データクリーニングと前処理を実行し、メタデータを付与する。
+    """テキストクリーニング、重複除去、メタデータ付与を実行する。
     
-    処理内容:
-      1. テキストデータのクリーニング（空白除去、正規化）
-      2. 重複レコードの除去（pageidベース）
-      3. メタデータカラムの追加（処理時刻、データソース）
-    
-    入力:
-      - validate_pages: 検証済みのpageid(int), title(str)
-    
-    出力:
-      - 元のカラム + processed_at(str), source(str) を含むDataFrame
+    Args:
+        context: Dagsterアセット実行コンテキスト
+        validate_pages: 検証済みのWikipediaページデータ
+        
+    Returns:
+        pd.DataFrame: 元のカラム + processed_at, sourceを含む処理済みDataFrame
     """
     context.log.info("clean_and_process_pages: 開始")
     
@@ -168,20 +156,17 @@ def clean_and_process_pages(context: AssetExecutionContext, validate_pages: pd.D
     group_name="wikipedia_etl",
 )
 def store_pages_to_csv(context: AssetExecutionContext, clean_and_process_pages: pd.DataFrame) -> str:
-    """
-    処理済みデータをCSVファイルに出力する。
+    """処理済みデータを環境変数で指定されたパスにCSVファイルとして出力する。
     
-    処理内容:
-      1. 環境変数からCSV出力パスを取得
-      2. StorageAdapterでCSV書き込み
-      3. エクスポート メタデータを付与
-      4. ファイルパスを返却
-    
-    入力:
-      - clean_and_process_pages: クリーニング済みのDataFrame
-    
-    出力:
-      - 出力先CSVファイルパス(str)
+    Args:
+        context: Dagsterアセット実行コンテキスト
+        clean_and_process_pages: クリーニング済みのDataFrame
+        
+    Returns:
+        str: 出力先CSVファイルのパス
+        
+    Raises:
+        RuntimeError: エクスポート処理が失敗した場合
     """
     context.log.info("store_pages_to_csv: 開始")
     
@@ -229,20 +214,14 @@ def store_pages_to_csv(context: AssetExecutionContext, clean_and_process_pages: 
     group_name="wikipedia_etl",
 )
 def filter_pages_by_criteria(context: AssetExecutionContext, clean_and_process_pages: pd.DataFrame) -> pd.DataFrame:
-    """
-    特定の条件でページをフィルタリングし、対象データを抽出する。
+    """タイトル条件でページをフィルタリングし、フォールバック機能で必ずデータを返す。
     
-    処理内容:
-      1. タイトルに'Wikipedia'を含むページを抽出
-      2. 該当なしの場合'Main'を含むページで再試行
-      3. それでも該当なしの場合は先頭半分を返却
-      4. フォールバック機能で必ず何らかのデータを返す
-    
-    入力:
-      - clean_and_process_pages: クリーニング済みのDataFrame
-    
-    出力:
-      - フィルタリング条件に合致したDataFrame
+    Args:
+        context: Dagsterアセット実行コンテキスト
+        clean_and_process_pages: クリーニング済みのDataFrame
+        
+    Returns:
+        pd.DataFrame: フィルタリング条件に合致したDataFrame
     """
     context.log.info("filter_pages_by_criteria: 開始")
     
@@ -294,20 +273,17 @@ def filter_pages_by_criteria(context: AssetExecutionContext, clean_and_process_p
     group_name="wikipedia_etl",
 )
 def store_filtered_pages_to_csv(context: AssetExecutionContext, filter_pages_by_criteria: pd.DataFrame) -> str:
-    """
-    フィルタリング済みデータを別のCSVファイルに出力する。
+    """フィルタリング済みデータを空チェックしてCSVファイルに出力する。
     
-    処理内容:
-      1. フィルタ済みDataFrameの空チェック
-      2. 空の場合はヘッダーのみのプレースホルダーファイル作成
-      3. データありの場合は通常のCSVエクスポート処理
-      4. エクスポートメタデータ付与
-    
-    入力:
-      - filter_pages_by_criteria: フィルタリング済みのDataFrame
-    
-    出力:
-      - フィルタ済みCSVファイルパス(str)
+    Args:
+        context: Dagsterアセット実行コンテキスト
+        filter_pages_by_criteria: フィルタリング済みのDataFrame
+        
+    Returns:
+        str: フィルタ済みCSVファイルのパス
+        
+    Raises:
+        RuntimeError: エクスポート処理が失敗した場合
     """
     context.log.info("store_filtered_pages_to_csv: 開始")
     
