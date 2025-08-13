@@ -29,22 +29,17 @@ Dagster Web UIを見るだけで、アセットの内容や処理フローが直
    # ✅ 新: fetch_raw_pages, validate_pages, clean_and_process_pages, store_pages_to_csv
    ```
 
-2. **包括的なdocstring（1行要約 + 詳細 + 入出力仕様）**
+2. **Google style docstring（処理内容含む1行目 + Args/Returns）**
    ```python
    @asset(description="Wikipedia APIからページ一覧（pageid, title）を取得する")
    def fetch_raw_pages(context: AssetExecutionContext) -> pd.DataFrame:
-       """
-       Wikipedia APIからページ一覧を取得し、生データのDataFrameを返す。
+       """Wikipedia APIからページ一覧を取得し、環境変数設定とAPI呼び出しを実行する。
        
-       処理内容:
-         1. 環境変数からAPI URLを取得
-         2. WikipediaApiConfigでリクエスト設定
-         3. allpages APIエンドポイントを呼び出し
-         4. JSONレスポンスをDataFrameに変換
-       
-       出力:
-         - pageid(int): Wikipedia固有のページID
-         - title(str): ページタイトル
+       Args:
+           context: Dagsterアセット実行コンテキスト
+           
+       Returns:
+           pd.DataFrame: pageidとtitleカラムを含む生データのDataFrame
        """
    ```
 
@@ -73,13 +68,14 @@ Dagster Web UIを見るだけで、アセットの内容や処理フローが直
 ```markdown
 以下の仕様で asset を追加して：
 - validate_pages の後に、title に "List of" を含むページだけを抽出する filter_pages_by_list アセットを追加
-- 「UIだけ見れば8割わかる Dagster 資産」ベストプラクティスを適用（動詞命名、包括的docstring、動的メタデータ、構造化ログ）
+- 「UIだけ見れば8割わかる Dagster 資産」ベストプラクティスを適用（動詞命名、Google style docstring、動的メタデータ、構造化ログ）
 - 新たなジョブ filter_job を作成
 ```
 
 ```markdown
 domain/models.py の PageSchema に namespace カラム（str型）を追加し、関連コードも更新して
 既存アセットも「UIだけ見れば8割わかる」パターンに合わせて更新
+docstringはGoogle style（処理内容含む1行目 + Args/Returns）で記述
 ```
 
 ---
@@ -202,7 +198,7 @@ docker-compose up --build
 
 ### 🎨 「UIだけ見れば8割わかる」パターン
 * **動詞命名**: `fetch_`, `validate_`, `clean_`, `store_`, `filter_`
-* **包括的docstring**: 1行要約 + 処理内容 + 入出力仕様
+* **Google style docstring**: 処理内容含む1行目 + Args/Returns（日本語）
 * **動的メタデータ**: row_count, preview, output_path 等
 * **構造化ログ**: `{asset_name}: 開始/完了 {key=value}`
 
