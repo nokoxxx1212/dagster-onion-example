@@ -415,3 +415,111 @@ docker-compose build --no-cache && docker-compose up -d dagster-web
 - **拡張性**: 新しいデータソースや出力先の追加が容易
 - **テスタビリティ**: 各層が独立してテスト可能
 - **CLI対応**: コマンドラインから簡単に実行可能
+
+## 👥 チーム別開発ルール
+
+### データサイエンティスト担当エリア
+
+**主な責務**: データ分析・モデリング・ビジネスロジック定義
+
+| ディレクトリ | ファイル | 役割 |
+|-------------|----------|------|
+| `domain/` | `models.py` | データスキーマ・バリデーションルール定義 |
+| `domain/` | `services.py` | データ処理・分析ロジック |
+| `usecase/` | `assets.py` | データパイプライン設計・アセット定義 |
+
+**修正権限**:
+- ✅ データスキーマ（Pandera）の追加・変更
+- ✅ バリデーションルール・データ品質チェック
+- ✅ データ処理・変換ロジック
+- ✅ アセット間の依存関係・パイプライン設計
+- ✅ メタデータ・ログ定義
+
+**変更例**:
+```python
+# domain/models.py - 新しいデータスキーマ追加
+class NewDataSchema(pa.DataFrameModel):
+    id: int
+    category: str
+    score: float
+
+# domain/services.py - 新しい分析ロジック追加  
+def analyze_data_quality(df: pd.DataFrame) -> ProcessingResult:
+    # データ品質分析ロジック
+    
+# usecase/assets.py - 新しいアセット追加
+@asset
+def analyze_data_trends(processed_data: pd.DataFrame):
+    # トレンド分析処理
+```
+
+### ソフトウェアエンジニア担当エリア
+
+**主な責務**: インフラ実装・システム設計・UI/UX
+
+| ディレクトリ | ファイル | 役割 |
+|-------------|----------|------|
+| `infrastructure/` | `api_clients.py` | 外部API・HTTP通信実装 |
+| `infrastructure/` | `storage.py` | データストレージ・出力実装 |
+| `ui/` | `cli.py` | CLI・ユーザーインターフェース |
+| `domain/` | `repositories.py` | 抽象インターフェース設計 |
+
+**修正権限**:
+- ✅ API実装・HTTP通信・認証
+- ✅ ファイル・データベース・クラウドストレージ実装
+- ✅ CLI引数・オプション・ユーザビリティ改善
+- ✅ エラーハンドリング・例外処理
+- ✅ パフォーマンス最適化・接続設定
+
+**変更例**:
+```python
+# infrastructure/api_clients.py - 新API実装
+class SlackApiClient(NotificationRepository):
+    def send_notification(self, message: str):
+        # Slack API実装
+
+# infrastructure/storage.py - 新出力先実装
+class BigQueryAdapter(StorageAdapter):
+    def save_dataframe(self, df: pd.DataFrame, table: str):
+        # BigQuery出力実装
+
+# ui/cli.py - 新CLIオプション追加
+parser.add_argument('--notify', help='通知先指定')
+```
+
+### 🔄 協働フロー
+
+#### 新機能追加時の進め方
+
+1. **要件整理** (データサイエンティスト主導)
+   - 何のデータが必要か
+   - どんな処理・分析が必要か
+   - 出力形式・品質要件
+
+2. **設計協議** (両チーム)
+   - データスキーマ設計
+   - 抽象インターフェース設計
+   - アーキテクチャレビュー
+
+3. **並行開発**
+   - **データサイエンティスト**: `domain/` + `usecase/` の実装
+   - **ソフトウェアエンジニア**: `infrastructure/` + `ui/` の実装
+
+4. **統合テスト** (両チーム)
+   - パイプライン全体のテスト
+   - パフォーマンス検証
+
+#### ⚠️ 注意事項
+
+| 禁止事項 | 理由 |
+|----------|------|
+| データサイエンティストが`infrastructure/`の実装詳細を修正 | 技術実装の責務分離 |
+| ソフトウェアエンジニアが`domain/services.py`のビジネスロジックを修正 | ドメイン知識の責務分離 |
+| 一方のチームが勝手にスキーマや抽象インターフェースを変更 | 影響範囲が広いため要協議 |
+
+#### 🤝 協議が必要なケース
+
+- データスキーマの大幅変更
+- 新しい抽象インターフェースの追加
+- パフォーマンスに影響する変更
+- 外部システムとの連携仕様変更
