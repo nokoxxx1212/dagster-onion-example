@@ -189,6 +189,106 @@ docker-compose run --rm dagster-test uv run pytest --cov=domain --cov=infrastruc
 - **構造化ログ**: `{asset_name}: 開始/完了 {key=value}` パターン
 - **明確な依存関係**: アセット間の依存関係とフォールバック機能
 
+## 🔄 処理フローの詳細
+
+### CLIからファイル保存までの実行フロー
+
+#### 1. エントリポイント: `ui/cli.py`
+```python
+# python ui/cli.py --job wikipedia_etl_job の実行
+main() → execute_job() → materialize(all_assets)
+```
+
+#### 2. アセット定義の取得: `definitions.py`
+Dagsterが依存関係順に以下のアセットを実行：
+```python
+assets = [
+    fetch_raw_pages,           # ① データ取得
+    validate_pages,            # ② データ検証  
+    clean_and_process_pages,   # ③ データ処理
+    store_pages_to_csv,        # ④ ファイル保存 🎯
+    # ...
+]
+```
+
+#### 3. 各アセットの処理詳細
+
+**① `fetch_raw_pages()` - データ取得**
+```
+usecase/assets.py:fetch_raw_pages()
+    ↓ 環境変数から設定取得
+    ↓ WikipediaApiConfig作成
+    ↓ domain/repositories.py:WikipediaRepository.fetch_wikipedia_pages()
+    ↓ requests.get() → Wikipedia API呼び出し
+    ↓ JSONレスポンス → pandas.DataFrame変換
+```
+
+**② `validate_pages()` - データ検証**
+```
+usecase/assets.py:validate_pages()
+    ↓ domain/services.py:ValidationService.validate_wikipedia_pages()
+    ↓ domain/models.py:PageSchema.validate() (Pandera)
+    ↓ 型チェック・必須フィールド検証
+```
+
+**③ `clean_and_process_pages()` - データ処理**
+```
+usecase/assets.py:clean_and_process_pages()
+    ↓ domain/services.py:DataProcessingService
+    ↓ clean_text_data() → テキストクリーニング
+    ↓ deduplicate_data() → 重複除去
+    ↓ add_metadata_columns() → メタデータ付与
+```
+
+**④ `store_pages_to_csv()` - ファイル保存** 🎯
+```
+usecase/assets.py:store_pages_to_csv()
+    ↓ 環境変数から出力パス取得
+    ↓ infrastructure/storage.py:StorageFactory.create_adapter("csv")
+    ↓ infrastructure/storage.py:DataExporter.export_with_metadata()
+    ↓ infrastructure/storage.py:CsvStorageAdapter.save_dataframe()
+    ↓ pandas.DataFrame.to_csv() → data/pages.csv保存完了 ✅
+```
+
+### 実行フロー図
+```
+CLI実行
+  ↓
+ui/cli.py
+  ↓
+definitions.py (アセット定義)
+  ↓
+Dagster実行エンジン
+  ↓
+┌─ fetch_raw_pages ─────────────────┐
+│ domain/repositories.py            │
+│ └─ Wikipedia API → DataFrame      │
+└───────────────────┬───────────────┘
+                    ↓
+┌─ validate_pages ──┴───────────────┐
+│ domain/services.py                │
+│ └─ Pandera検証                    │
+└───────────────────┬───────────────┘
+                    ↓
+┌─ clean_and_process_pages ─┴──────┐
+│ domain/services.py               │
+│ └─ クリーニング・重複除去・メタデータ │
+└───────────────────┬──────────────┘
+                    ↓
+┌─ store_pages_to_csv ──┴──────────┐
+│ infrastructure/storage.py        │
+│ └─ CSV出力 → data/pages.csv     │
+└──────────────────────────────────┘
+```
+
+### オニオンアーキテクチャでの責務分離
+- **UI層** (`ui/cli.py`): コマンドライン入力・ユーザーインターフェース
+- **ユースケース層** (`usecase/assets.py`): Dagsterアセット定義・ワークフロー
+- **ドメイン層** (`domain/`): ビジネスロジック・データ検証・API呼び出し
+- **インフラ層** (`infrastructure/`): ファイル保存・外部システム連携
+
+この設計により、各層が独立してテスト可能で、将来的な拡張（BigQuery出力、別API連携など）が容易になっています。
+
 ## 🔧 設定とカスタマイズ
 
 ### 環境変数（.env）
